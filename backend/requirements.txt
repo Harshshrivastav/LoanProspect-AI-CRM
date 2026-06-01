@@ -1,0 +1,32 @@
+# ── Core web framework ────────────────────────────────────────────────────────
+fastapi==0.136.3
+uvicorn[standard]==0.48.0
+sse-starlette==3.4.4
+python-multipart==0.0.29
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.50
+
+# ── Pydantic  (crewai 1.14.5 hard constraints: pydantic<2.13,>=2.11.9
+#                                               pydantic-settings~=2.10.1) ─────
+pydantic==2.12.5
+pydantic-settings==2.10.1
+python-dotenv==1.2.2
+
+# ── AI / Agent layer ──────────────────────────────────────────────────────────
+crewai==1.14.5
+crewai-tools==1.14.5
+# litellm 1.86.2 requires openai>=2.20.0,<3  →  satisfies crewai's openai>=2.30.0
+litellm==1.86.2
+
+# ── HTTP / async ─────────────────────────────────────────────────────────────
+httpx==0.28.1
+# crewai 1.14.5 requires aiofiles~=24.1.0  (must be 24.x, NOT 25.x)
+aiofiles==24.1.0
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+faker==40.19.1
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==9.0.3
+pytest-asyncio==1.4.0
