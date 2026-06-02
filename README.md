@@ -9,26 +9,27 @@ Powered by **CrewAI** (multi-agent orchestration) · **Gemini** (LLM via LiteLLM
 ## 📋 Table of Contents
 
 1. [What It Does](#what-it-does)
-2. [Architecture Overview](#architecture-overview)
-3. [Modular Documentation Reference](#-modular-documentation-reference)
-4. [Multi-Agent System](#multi-agent-system)
-5. [Database Schema](#database-schema)
-6. [API Reference](#api-reference)
-7. [Tool Reference](#tool-reference)
-8. [Setup & Run](#setup--run)
-9. [Sample Workflows](#sample-workflows)
-10. [Scoring Algorithm](#scoring-algorithm)
-11. [Seed Data Strategy](#seed-data-strategy)
-12. [Frontend Structure](#frontend-structure)
-13. [Compliance & Governance](#compliance--governance)
-14. [Trade-offs & Limitations](#trade-offs--limitations)
-15. [Future Enhancements](#future-enhancements)
+2. [Dual-Path Intelligence Engine](#dual-path-intelligence-engine)
+3. [Architecture Overview](#architecture-overview)
+4. [Modular Documentation Reference](#-modular-documentation-reference)
+5. [Multi-Agent System](#multi-agent-system)
+6. [Database Schema](#database-schema)
+7. [API Reference](#api-reference)
+8. [Tool Reference](#tool-reference)
+9. [Setup & Run](#setup--run)
+10. [Sample Workflows](#sample-workflows)
+11. [Scoring Algorithm](#scoring-algorithm)
+12. [Seed Data Strategy](#seed-data-strategy)
+13. [Frontend Structure](#frontend-structure)
+14. [Compliance & Governance](#compliance--governance)
+15. [Trade-offs & Limitations](#trade-offs--limitations)
+16. [Future Enhancements](#future-enhancements)
 
 ---
 
 ## 📂 Modular Documentation Reference
 
-For a deep-dive into each technical layer, review our detailed modular documents inside the new `documentation/` directory:
+For a deep-dive into each technical layer, review our detailed modular documents inside the `documentation/` directory:
 - 🧭 **[Architectural Overview](file:///c:/Users/harsh/Projects/BusinessNextProject/LoanProspect-AI-CRM/documentation/architecture_overview.md)** — Explains the Unified Chat Workspace system conception and system lifecycle flows.
 - ⚙️ **[Backend Architecture & Core Services](file:///c:/Users/harsh/Projects/BusinessNextProject/LoanProspect-AI-CRM/documentation/backend.md)** — Deep dive into Plan/Step models, MemoryStore variables, MemorySummariser LLM compaction, and LoopController thresholds.
 - 🎨 **[Frontend Architecture & UI Components](file:///c:/Users/harsh/Projects/BusinessNextProject/LoanProspect-AI-CRM/documentation/frontend.md)** — Breakdown of `useStreaming.js` hook, `PlanCard.jsx` vertical timeline, `InlineDataGrid.jsx`, and contextual next-step suggestions.
@@ -49,68 +50,126 @@ All actions are logged to a full audit trail and comply with marketing consent r
 
 ---
 
+## Dual-Path Intelligence Engine
+
+Unlike standard banking chatbots, LoanProspect AI CRM features a custom **Dual-Path Intelligence Engine** that dynamically routes relationship manager requests based on their complexity:
+
+```
+                  ┌────────────────────────────────────────┐
+                  │        Relationship Manager Query      │
+                  └───────────────────┬────────────────────┘
+                                      │
+                                      ▼
+                      [ Heuristic Intent Classifier ]
+                      (is_simple_query heuristic check)
+                               /             \
+                   Simple / Direct          Complex / Strategic
+                             /                 \
+                            ▼                   ▼
+             ┌─────────────────────────┐  ┌─────────────────────────┐
+             │ StreamingConversation   │  │    Planner Service      │
+             │ Crew (Inline Direct)    │  │ (Multi-step Formulation)│
+             └──────────┬──────────────┘  └─────────────┬───────────┘
+                        │                               │
+                        │                               ▼
+                        │                  ┌─────────────────────────┐
+                        │                  │   RM Plan Review &      │
+                        │                  │  HITL Editing Stepper   │
+                        │                  └────────────┬────────────┘
+                        │                               │ (RM Approved)
+                        │                               ▼
+                        │                  ┌─────────────────────────┐
+                        │                  │  SSE Execution Loop     │
+                        │                  │   - Dynamic resolution  │
+                        │                  │   - Memory Compaction   │
+                        │                  │   - Loop Controller     │
+                        └──────────┬───────└────────────┬────────────┘
+                                   │                    │
+                                   ▼                    ▼
+                               ┌──────────────────────────┐
+                               │ Renders Chat Workspace   │
+                               └──────────────────────────┘
+```
+
+### 1. Direct Streaming Path (Conversational Mode)
+For simple queries (e.g. *"Show details for CUST001"* or *"KYC status of John Doe"*), the query is routed to `StreamingConversationCrew`. It executes instantly, bypassing plan authorization:
+* **Real-time Streaming**: Returns an inline stream of direct text chunks, thoughts, and status variables over a raw `application/x-ndjson` stream.
+* **Intelligent Auto-Suggestions**: Uses Gemini to analyze the assistant's final response and generate 4 dynamic, actionable "next step" contextual recommendations (e.g. *"Compute loan readiness for CUST001"*) that map directly to the system's tools.
+
+### 2. Autopilot Plan-then-Execute Path (Strategic Mode)
+For strategic requests involving multi-phase workflows (e.g. *"Find customers with wedding spends, validate their compliance, and draft a bulk campaign"*), the **Planner Service** compiles a detailed, structured execution plan:
+* **Interactive Plan Card Stepper**: The user is presented with a vertical timeline timeline (`PlanCard`) detailing the proposed sequential operations. The RM can edit step descriptions, tools, or inputs before launching.
+* **Server-Sent Events (SSE) Execution**: Once approved, the backend schedules execution over a persistent SSE connection (`GET /api/chat/stream/{plan_id}`).
+* **Dynamic Parameter Resolution**: High-level steps automatically pass variable outputs (e.g. passing a customer list from step 1 to transaction tools in step 2) using notation references like `"$step1.output.customer_ids"`.
+* **Memory Compaction & Control Loops**:
+  * **MemoryStore & Summariser**: Tracks logging variables in real-time. If logs exceed **4,000 tokens**, a compaction loop triggers Gemini to compress historical logs by up to **80%** while preserving immutable pinned facts.
+  * **Loop Controller**: Monitors execution limits (max 10 steps), catches exceptions to run a single dynamic recovery/replanning branch (`replan_failed_step`), and aborts if empty values recur.
+  * **Human-in-the-Loop (HITL)**: Automatically pauses execution and raises a sliding outreach draft editor panel whenever an outreach step requires RM approval.
+
+---
+
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    REACT FRONTEND (Vite + Tailwind)                  │
-│                                                                       │
-│  ┌──────────────────┐  ┌────────────────────────────────────────┐   │
-│  │   Sidebar        │  │  Dashboard (/)                         │   │
-│  │  - Chat Sessions │  │  - ProspectRankingTable (expandable)   │   │
-│  │  - Campaigns     │  │  - KPI Cards                           │   │
-│  │  - New Chat      │  │  - UrgentActionsPanel                  │   │
-│  │  - Settings      │  │  - CampaignIntelligencePanel           │   │
-│  └──────────────────┘  │  - AgentActivityFeed                   │   │
-│                         └────────────────────────────────────────┘   │
-│                         ┌────────────────────────────────────────┐   │
-│  ┌──────────────────┐   │  Conversation Workspace (/chat)        │   │
-│  │  ClientPortal    │   │  - Streaming chat with agent activity  │   │
-│  │  (Full Modal)    │   │  - Tool execution cards                │   │
-│  │  - KYC Profile   │   │  - TemplateSuggestionBar               │   │
-│  │  - Transactions  │   │  - MessageBubble with markdown         │   │
-│  │  - Prospect Why  │   └────────────────────────────────────────┘   │
-│  │  - Agent Evidence│                                                 │
-│  │  - Outreach      │                                                 │
-│  └──────────────────┘                                                 │
-└─────────────────────────────┬───────────────────────────────────────┘
-                              │ HTTP / NDJSON SSE
-┌─────────────────────────────▼───────────────────────────────────────┐
-│                    FASTAPI BACKEND (uvicorn)                          │
-│                                                                       │
-│  /api/prospects  /api/customers  /api/campaigns  /api/message        │
-│  /api/chat/stream (NDJSON SSE)  /api/audit  /api/agent/status        │
-│                                                                       │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │              CrewAI Orchestration Layer                       │    │
-│  │                                                               │    │
-│  │  ProspectAnalysisCrew (4 agents, sequential)                 │    │
-│  │  BulkOutreachCrew (3 agents, sequential)                     │    │
-│  │  StreamingConversationCrew (3 agents + step_callback + SSE)  │    │
-│  └───────────────────┬─────────────────────────────────────────┘    │
-│                       │ LiteLLM → Gemini                              │
-│  ┌────────────────────▼────────────────────────────────────────┐    │
-│  │              Tool Layer (16 @tool functions)                  │    │
-│  │  customer · transaction · scoring · outreach · compliance    │    │
-│  │  campaign · audit · conversation                             │    │
-│  └────────────────────┬────────────────────────────────────────┘    │
-│                        │                                              │
-│  ┌─────────────────────▼───────────────────────────────────────┐    │
-│  │              Service Layer                                    │    │
-│  │  scoring_service · customer_service · message_service        │    │
-│  │  campaign_service · chat_service                             │    │
-│  └─────────────────────┬───────────────────────────────────────┘    │
-│                         │                                             │
-│  ┌──────────────────────▼──────────────────────────────────────┐    │
-│  │              Repository Layer (SQLAlchemy)                    │    │
-│  │  customer_repo · transaction_repo · campaign_repo · audit    │    │
-│  └──────────────────────┬───────────────────────────────────────┘   │
-│                          │ sqlite3                                     │
-│  ┌───────────────────────▼──────────────────────────────────────┐   │
-│  │              SQLite DB (data/banking_crm.db)                   │   │
-│  │  12 tables · 75 customers · ~5,000 transactions               │   │
-│  └───────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                       REACT FRONTEND (Vite + Tailwind)                          │
+│                                                                                 │
+│  ┌──────────────────┐  ┌─────────────────────────────────────────────────────┐  │
+│  │   Sidebar        │  │  Dashboard (/)                                      │  │
+│  │  - Workspace     │  │  - ProspectRankingTable (expandable)                │  │
+│  │  - Analytics     │  │  - KPI Cards                                        │  │
+│  │  - New Conversat.│  │  - UrgentActionsPanel                               │  │
+│  │  - Recent Queries│  │  - CampaignIntelligencePanel                        │  │
+│  │  └────────────────┘  │  - AgentActivityFeed                                │  │
+│  │                     └─────────────────────────────────────────────────────┘  │
+│  │                     ┌─────────────────────────────────────────────────────┐  │
+│  │  ┌───────────────┐  │  Conversation Workspace (/chat)                     │  │
+│  │  │ ClientPortal  │  │  - Streaming chat with agent activity               │  │
+│  │  │ (Full Modal)  │  │  - Interactive PlanCard (vertical stepper)          │  │
+│  │  │ - KYC Card    │  │  - InlineDataGrid (automatic tables)                │  │
+│  │  │ - Txn Panel   │  │  - OutreachPreviewDrawer (WhatsApp sliding review)  │  │
+│  │  │ - Score Panel │  │  - TemplateSuggestionBar (contextual next-steps)    │  │
+│  │  │ - Agent Evid. │  └─────────────────────────────────────────────────────┘  │
+│  │  │ - Outreach    │                                                           │
+│  │  └───────────────┘                                                           │
+│  └──────────────────────────────────────┬───────────────────────────────────────┘
+│                                         │ HTTP / SSE / NDJSON
+┌─────────────────────────────────────────▼───────────────────────────────────────┐
+│                       FASTAPI BACKEND (uvicorn)                                 │
+│                                                                                 │
+│  /api/prospects   /api/customers   /api/campaigns   /api/message  /api/audit    │
+│  /api/chat/stream (NDJSON SSE classification)  /api/chat/stream/{plan_id} (SSE)   │
+│                                                                                 │
+│  ┌───────────────────────────────────────────────────────────────────────────┐  │
+│  │                       CrewAI Orchestration Layer                          │  │
+│  │                                                                           │  │
+│  │  ProspectAnalysisCrew (4 agents, sequential)                              │  │
+│  │  BulkOutreachCrew (3 agents, sequential)                                  │  │
+│  │  StreamingConversationCrew (3 agents + step_callback + SSE)               │  │
+│  └────────────────────────────────────┬──────────────────────────────────────┘  │
+│                                       │ LiteLLM → Gemini                        │
+│  ┌────────────────────────────────────▼──────────────────────────────────────┐  │
+│  │                       Tool Layer (21 @tool functions)                     │  │
+│  │  customer · transaction · scoring · outreach · compliance · campaign ·    │  │
+│  │  audit · conversation                                                     │  │
+│  └────────────────────────────────────┬──────────────────────────────────────┘  │
+│                                       │                                         │
+│  ┌────────────────────────────────────▼──────────────────────────────────────┐  │
+│  │                       Service Layer (10 Core Services)                    │  │
+│  │  planner · executor · memory_store · summariser · loop_controller ·       │  │
+│  │  scoring · customer · campaign · message · chat                           │  │
+│  └────────────────────────────────────┬──────────────────────────────────────┘  │
+│                                       │                                         │
+│  ┌────────────────────────────────────▼──────────────────────────────────────┐  │
+│  │                       Repository Layer (SQLAlchemy)                       │  │
+│  │  customer_repo · transaction_repo · campaign_repo · audit_repo            │  │
+│  └────────────────────────────────────┬──────────────────────────────────────┘  │
+│                                       │ sqlite3                                 │
+│  ┌────────────────────────────────────▼──────────────────────────────────────┐  │
+│  │                       SQLite DB (data/banking_crm.db)                     │  │
+│  │  14 tables · 75 customers · ~5,000 transactions · execution state logs    │  │
+│  └───────────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -138,68 +197,43 @@ llm = LLM(model="gemini/gemini-2.5-flash", api_key=GEMINI_API_KEY)
 
 ### The 3 Crews
 
-**ProspectAnalysisCrew** (triggered when RM clicks "Analyze with AI"):
+**ProspectAnalysisCrew** (triggered when RM clicks "Analyze with AI" in Client Portal):
 ```
 EvidenceAgent → LoanReadinessAgent → ComplianceAgent → OutreachWriterAgent
 ```
 
-**BulkOutreachCrew** (triggered when creating a campaign):
+**BulkOutreachCrew** (triggered when running campaign outreach batches):
 ```
 CampaignCoordinatorAgent → ComplianceAgent → OutreachWriterAgent
 ```
 
-**StreamingConversationCrew** (powers direct simple chat responses):
+**StreamingConversationCrew** (powers direct conversational chat responses):
 ```
-Routes to most relevant agent based on simple conversation intents.
-Emits plain message text chunks and direct tool activity inline.
-```
-
-### 1. Direct Simple Queries Stream (NDJSON)
-Simple queries return inline text stream chunks:
-```json
-{"type": "status",      "message": "Analyzing request...", "agent": "Orchestrator"}
-{"type": "agent_start", "agent": "EvidenceAggregationAgent", "task": "Fetching data..."}
-{"type": "tool_call",   "tool": "detect_life_event_spends", "input": "CUST012"}
-{"type": "tool_result", "tool": "detect_life_event_spends", "output": "Medical: ₹1.8L..."}
-{"type": "chunk",       "text": "Based on the analysis, CUST012 is..."}
-{"type": "done",        "steps": [...], "final_answer": "..."}
-```
-
-### 2. Autopilot Plan-then-Execute Stream (SSE / NDJSON)
-Complex queries compile a multi-step plan, await human approval, and then open a dedicated SSE event stream to execute the plan steps:
-```json
-{"type": "plan", "plan_id": "8a72b5c...", "steps": [{"step_number": 1, "tool_name": "list_customers_brief", "description": "Fetch prospects"}], "requires_approval": true}
-{"type": "status", "message": "Starting Plan Execution", "phase": "executing"}
-{"type": "step_start", "step_number": 1, "description": "Fetch prospects"}
-{"type": "thought", "text": "I will scan the customer base to isolate targets.", "step_number": 1}
-{"type": "tool_call", "tool": "list_customers_brief", "input": "{}", "step_number": 1}
-{"type": "tool_result", "tool": "list_customers_brief", "output": "[CUST001, CUST002]", "step_number": 1}
-{"type": "loop_decision", "step_number": 1, "decision": "continue", "reason": "Valid output received"}
-{"type": "memory_summary", "summary": "Compacted history...", "step_number": 1}
-{"type": "paused_hitl", "feedback_type": "outreach_review", "draft": "Hello from RM...", "step_number": 3}
-{"type": "done", "final_answer": "Execution successfully completed.", "steps": [...]}
+Routes to most relevant agent based on conversation context. Emits plain text chunks and direct tool activity.
 ```
 
 ---
 
 ## Database Schema
 
-12 tables in SQLite (`data/banking_crm.db`):
+We use SQLAlchemy ORM mapping to **14 tables** in a local SQLite file (`data/banking_crm.db`). This includes the core relational business tables and the execution state tables that drive our Planner-Executor loops:
 
 | Table | Purpose | Key Fields |
 |-------|---------|-----------|
-| `customers` | Customer KYC + profile | customer_id, full_name, city, occupation, annual_income, consent_marketing |
-| `customer_accounts` | Banking relationship | account_type, current_balance, avg_monthly_balance, monthly_inflow/outflow |
-| `transactions` | Transaction history | txn_date, txn_type, category, amount, balance_after, is_recurring |
-| `product_holdings` | Products owned | product_type, outstanding_amount, emi_amount |
-| `loan_signals` | Detected behavioral signals | signal_type, signal_value, confidence_score |
-| `outreach_history` | Messages sent/drafted | message_text, sent_status, approved_by_rm |
-| `campaigns` | Campaign management | campaign_name, status, target_count, approved_by_rm |
-| `rm_notes` | RM observations | note_text, rm_id |
-| `audit_logs` | Full audit trail | actor_type, action_type, tool_name |
-| `chat_sessions` | Conversation history | title, is_pinned, is_archived |
-| `chat_messages` | Message content | role, content, agent_steps (JSON) |
-| `app_settings` | Runtime config | setting_key, setting_value |
+| `customers` | Customer KYC + profile | customer_id, full_name, city, annual_income, consent_marketing, risk_segment, kyc_status |
+| `customer_accounts` | Banking relationship details | account_id, account_type, current_balance, avg_monthly_balance, monthly_inflow |
+| `transactions` | Historical transaction records | transaction_id, customer_id, txn_date, txn_type, category, amount, balance_after |
+| `product_holdings` | Products held by customers | holding_id, customer_id, product_type, product_status, outstanding_amount, emi_amount |
+| `loan_signals` | Detected propensity signals | signal_id, customer_id, signal_type, signal_value, confidence_score |
+| `outreach_history` | Generated WhatsApp drafts & logs | outreach_id, customer_id, campaign_id, message_text, sent_status, approved_by_rm |
+| `campaigns` | Marketing campaigns | campaign_id, campaign_name, status, target_count, success_count |
+| `rm_notes` | Relationship Manager observations | note_id, customer_id, rm_id, note_text, created_at |
+| `audit_logs` | Security & activity trail | audit_id, actor_type, actor_name, action_type, tool_name, created_at |
+| `chat_sessions` | Conversational session headers | session_id, title, is_pinned, is_archived, customer_context |
+| `chat_messages` | Chat history messages | message_id, session_id, role, content, agent_steps (JSON logs) |
+| `app_settings` | Dynamic app environment variables | setting_key, setting_value, updated_at |
+| `plans` 🆕 | Execution plan headers | plan_id, session_id, original_query, status (`planning`, `running`, `completed`, `failed`) |
+| `execution_steps` 🆕 | Plan execution steps | step_id, plan_id, step_number, description, tool_name, tool_args (JSON), status, retry_count, hitl_required |
 
 ---
 
@@ -224,11 +258,11 @@ Complex queries compile a multi-step plan, await human approval, and then open a
 | POST | `/api/message/approve` | Approve a message for sending |
 | GET | `/api/chat/sessions` | List chat sessions |
 | POST | `/api/chat/sessions` | Create session |
-| POST | `/api/chat/stream` | **Streaming chat** (Simple direct / plan generator) |
-| GET | `/api/chat/stream/{plan_id}` | **Event-Loop Executor Stream** (SSE timeline execution logs) |
-| POST | `/api/chat/sessions/{session_id}/approve-plan` | Approve or edit scheduled plan steps |
-| POST | `/api/chat/sessions/{session_id}/feedback` | Submit Human-in-the-Loop feedback / outreach edits |
-| GET | `/api/audit` | Audit log |
+| POST | `/api/chat/stream` | **Streaming chat router** (Direct simple response OR complex plan generator) |
+| GET | `/api/chat/stream/{plan_id}` | **SSE Event Loop Executor** (Streams steps, tool logs, CoT, and summaries) |
+| POST | `/api/chat/sessions/{session_id}/approve-plan` | Approve, schedule, or override steps of a plan |
+| POST | `/api/chat/sessions/{session_id}/feedback` | Submit feedback, message edits, or approval to paused streams |
+| GET | `/api/audit` | Audit log list |
 | GET | `/api/agent/status` | Agent/crew status |
 | POST | `/api/agent/config` | Update Gemini API key + model |
 
@@ -236,56 +270,42 @@ Complex queries compile a multi-step plan, await human approval, and then open a
 
 ## Tool Reference
 
-16 tools decorated with `@tool` from `crewai.tools`:
+We expose **21 specialized @tool functions** from `crewai.tools`, split logically by features:
 
-### Customer Tools
-| Tool | Description |
-|------|-------------|
-| `fetch_customer_profile` | Full profile with account, products, signals |
-| `list_customers_brief` | Quick overview of all customers |
-| `get_customer_risk_summary` | Risk assessment with debt ratios |
+### 💼 Customer Tools
+* `list_customers_brief`: Summary list of all customers.
+* `fetch_customer_profile`: Comprehensive profile details (accounts, signals, holdings).
+* `get_customer_risk_summary`: Analyzes debt-to-income and overall financial risk segments.
 
-### Transaction Tools
-| Tool | Description |
-|------|-------------|
-| `fetch_transaction_summary` | Income/expense totals + categories |
-| `detect_life_event_spends` | Medical, renovation, education, wedding, travel signals |
-| `calculate_cashflow_trend` | Month-over-month spending trend |
+### 💳 Transaction Tools
+* `fetch_transaction_summary`: Inflow, outflow, and category transaction breakdowns.
+* `detect_life_event_spends`: Scans transaction history for specific high-value medical, wedding, renovation, or education expenses.
+* `calculate_cashflow_trend`: Computes month-over-month cash trajectories.
 
-### Scoring Tools
-| Tool | Description |
-|------|-------------|
-| `compute_loan_readiness_score` | Full 8-dimension deterministic score (0-100) |
-| `rank_personal_loan_prospects` | Ranked list of all prospects |
-| `get_prospect_explanation` | Human-readable explanation of prospect rating |
+### 📈 Scoring Tools
+* `compute_loan_readiness_score`: Calculates deterministic loan readiness score (0-100) across 8 vectors.
+* `rank_personal_loan_prospects`: Evaluates and ranks the entire customer portfolio.
+* `get_prospect_explanation`: Renders a friendly, explaining narrative for score values.
 
-### Outreach Tools
-| Tool | Description |
-|------|-------------|
-| `generate_whatsapp_message` | Personalized message via LiteLLM/Gemini |
-| `generate_bulk_messages` | Messages for up to 5 customers |
+### ✉️ Outreach Tools
+* `generate_whatsapp_message`: Personalized message template builder.
+* `generate_bulk_messages`: Message builder optimized for batch operations.
 
-### Compliance Tools
-| Tool | Description |
-|------|-------------|
-| `validate_compliance` | Consent + KYC + content safety check |
-| `get_compliance_summary` | Quick compliance status |
+### 🛡️ Compliance Tools
+* `validate_compliance`: Runs checks for marketing consent, verified KYC, and text policies.
+* `get_compliance_summary`: Aggregates metrics regarding portfolio-wide consent and KYC rates.
 
-### Campaign Tools
-| Tool | Description |
-|------|-------------|
-| `create_campaign_payload` | Creates campaign in DB |
-| `get_campaign_status_summary` | All campaigns + status |
-| `get_top_prospect_ids_for_campaign` | Top N customer IDs for targeting |
+### 📣 Campaign Tools
+* `create_campaign_payload`: Saves campaign headers and targeted segments to database.
+* `get_campaign_status_summary`: Lists campaigns and active completion ratios.
+* `get_top_prospect_ids_for_campaign`: Selects the top N prospects matching campaign rules.
 
-### Utility Tools
-| Tool | Description |
-|------|-------------|
-| `log_audit_event` | Writes to audit trail |
-| `get_audit_trail` | Fetches formatted audit log |
-| `list_chat_sessions` | All chat sessions |
-| `create_chat_session` | New conversation session |
-| `save_chat_message` | Persist a message |
+### ⚙️ Utility & Conversation Tools
+* `log_audit_event`: Records actors, tools, and actions to the audit database.
+* `get_audit_trail`: Retrieves security logs.
+* `list_chat_sessions`: Fetches non-archived chat history headers.
+* `create_chat_session`: Spawns a new chat session database entry.
+* `save_chat_message`: Persists messages and agent execution logs inside sessions.
 
 ---
 
@@ -294,7 +314,7 @@ Complex queries compile a multi-step plan, await human approval, and then open a
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- Gemini API key (free at https://aistudio.google.com/app/apikey)
+- Gemini API key (free at [Google AI Studio](https://aistudio.google.com/app/apikey))
 
 ### Step 1 — Backend Setup
 
@@ -338,12 +358,10 @@ npm run dev
 
 The frontend will be available at `http://localhost:5173`.
 
-### Step 3 — Configure API Key in UI
+### Step 3 — Configure API Key
 
-1. Open the app at `http://localhost:5173`
-2. Click the ⚙️ Settings icon in the sidebar
-3. Enter your Gemini API key
-4. The dashboard works immediately with seed data
+1. Ensure your `GEMINI_API_KEY` is set in the backend `.env` file for AI-driven planning and chat features.
+2. The dashboard works immediately with seed data out-of-the-box.
 
 > **Note:** The dashboard, client portal, and scoring all work **without** an API key — they use deterministic rules. Only the AI chat and message generation require a Gemini key.
 
@@ -458,54 +476,68 @@ Also seeded: 3 campaigns, 5 chat sessions with messages, 20 audit log entries.
 
 ## Frontend Structure
 
+The React web application lives in `frontend/src/` and is divided logically into pages, state machines, contexts, and highly reusable HSL-styled widgets:
+
 ```
 frontend/src/
 ├── api/
-│   └── client.js                  # All API calls + streamChat generator
+│   └── client.js                  # API fetch clients & streamChat NDJSON reader
 ├── context/
-│   ├── AppContext.jsx              # Global: client portal, notifications, settings
-│   └── ChatContext.jsx             # Chat: sessions, messages, streaming state
+│   ├── AppContext.jsx             # Active portal overlays, settings, & notifications
+│   └── ChatContext.jsx            # Active sessions history & message lists
 ├── hooks/
-│   ├── useProspects.js             # Fetch + cache prospect list
-│   ├── useClientPortal.js          # Client portal data + message generation
-│   └── useStreaming.js             # Streaming chat state machine
+│   ├── useProspects.js            # Paginated portfolio caching hook
+│   ├── useClientPortal.js         # Single customer detail compiler
+│   └── useStreaming.js            # State machine parsing NDJSON stream tokens
 ├── layouts/
-│   └── AppLayout.jsx               # Sidebar + main content wrapper
+│   └── AppLayout.jsx              # Sidebar workspace grid layout
 ├── pages/
-│   ├── Dashboard.jsx               # Landing page (actionable intelligence)
-│   └── ConversationWorkspace.jsx   # Agentic chat interface
+│   ├── Dashboard.jsx              # Customer scanning & KPI aggregates
+│   └── ConversationWorkspace.jsx  # Main routing hub for agent chat
+├── styles/
+│   └── index.css                  # Tailored dark-mode & harmonious HSL variables
 ├── components/
 │   ├── dashboard/
-│   │   ├── KPICards.jsx            # 5 stat cards
-│   │   ├── ProspectRankingTable.jsx # Expandable ranked table
-│   │   ├── UrgentActionsPanel.jsx   # Top HIGH-band prospects
-│   │   ├── CampaignIntelligencePanel.jsx
-│   │   └── AgentActivityFeed.jsx    # Recent audit events
+│   │   ├── KPICards.jsx           # Stat count aggregates (High, Medium, consent)
+│   │   ├── ProspectRankingTable.jsx # Portfolio scanning table with accordion detail
+│   │   ├── UrgentActionsPanel.jsx  # Top targeted prospect lists
+│   │   ├── CampaignIntelligencePanel.jsx # Campaigns listing visual cards
+│   │   └── AgentActivityFeed.jsx   # Live updates on backend events
 │   ├── client/
-│   │   ├── ClientPortal.jsx         # Full-screen overlay modal
-│   │   ├── KYCProfileCard.jsx       # Profile + account summary
-│   │   ├── TransactionOverviewPanel.jsx  # Charts + transaction list
-│   │   ├── ProspectReasonPanel.jsx   # Score + signals + loan factors
-│   │   ├── AgentEvidencePanel.jsx    # Agent contributions
-│   │   └── OutreachPanel.jsx         # Message composer + history
+│   │   ├── ClientPortal.jsx        # Fullscreen overlay modal manager
+│   │   ├── KYCProfileCard.jsx      # Financial indices & accounts breakdown
+│   │   ├── TransactionOverviewPanel.jsx # High-density chart & search records
+│   │   ├── ProspectReasonPanel.jsx  # Scoring factors & signals panel
+│   │   ├── AgentEvidencePanel.jsx   # Sequence logs for CrewAI analysis
+│   │   ├── OutreachPanel.jsx        # Historical message list
+│   │   ├── AgentContributionPanel.jsx 🆕 # Interactive contribution gauges
+│   │   ├── CampaignHistoryList.jsx 🆕   # Visual campaigns targeting details
+│   │   ├── ComplianceStatusBanner.jsx 🆕 # Compliance checks & warning highlights
+│   │   ├── EvidenceTimeline.jsx 🆕      # Time-series behavioral signal nodes
+│   │   ├── LoanFitFactorChips.jsx 🆕    # Dynamic credit fit tags
+│   │   ├── NextBestActionCard.jsx 🆕    # RM-facing action triggers
+│   │   ├── OutreachPreviewDrawer.jsx 🆕 # WhatsApp sliding draft composer & simulator
+│   │   └── ProspectReasonCard.jsx 🆕    # Detailed radar score breakdown cards
 │   ├── conversation/
-│   │   ├── MessageBubble.jsx         # Chat bubbles + tool accordion
-│   │   ├── MessageInput.jsx          # Input with streaming state
-│   │   └── TemplateSuggestionBar.jsx # 8 quick-action templates
-│   ├── agents/
-│   │   ├── AgentActivityPanel.jsx    # Real-time agent timeline
-│   │   └── ToolExecutionCard.jsx     # Single tool call card
+│   │   ├── MessageBubble.jsx       # Chat bubble with markdown support
+│   │   ├── MessageInput.jsx        # Input bar with stream status locks
+│   │   ├── TemplateSuggestionBar.jsx # 4 quick-action contextual next steps
+│   │   ├── InlineDataGrid.jsx 🆕    # Autogenerated tables inside chat bubbles
+│   │   └── PlanCard.jsx 🆕          # Vertical interactive plan step timeline
 │   ├── campaigns/
-│   │   ├── CampaignCard.jsx          # Campaign status card
-│   │   └── CampaignApprovalModal.jsx  # Approve/create modal
+│   │   ├── CampaignApprovalModal.jsx 🆕 # Batch approval trigger overlay
+│   │   └── CampaignCard.jsx 🆕          # Dashboard mini campaign visual cards
+│   ├── agents/
+│   │   ├── AgentActivityPanel.jsx 🆕  # Real-time CrewAI timeline widget
+│   │   └── ToolExecutionCard.jsx 🆕   # Tool call inputs/outputs inspector card
 │   └── shared/
-│       ├── ScoreBar.jsx              # Colored score visualization
-│       ├── ConfidenceMeter.jsx        # Progress bar 0-100%
-│       ├── ComplianceBanner.jsx       # Compliance status
-│       ├── SignalChip.jsx             # Colored signal tags
-│       ├── LoadingSkeleton.jsx        # Pulse skeleton states
-│       ├── SettingsModal.jsx          # API key configuration
-│       └── NotificationToast.jsx      # In-app notifications
+│       ├── ScoreBar.jsx           # Progress-bar indicator for readiness
+│       ├── ConfidenceMeter.jsx     # Visual indicator for signal scores
+│       ├── ComplianceBanner.jsx    # Small compliance status check badges
+│       ├── SignalChip.jsx          # Color-coded lifestyle spend flags
+│       ├── LoadingSkeleton.jsx     # Pulse shimmer component skeletons
+│       ├── SettingsModal.jsx       # Side-drawer config for API keys
+│       └── NotificationToast.jsx   # Toast alert dispatcher
 ```
 
 ---
@@ -564,13 +596,13 @@ LoanProspect-AI-CRM/
 │   │   │   └── crews.py              # 3 crews + streaming conversation
 │   │   ├── api/                      # FastAPI routers (8 files)
 │   │   ├── db/
-│   │   │   ├── models.py             # SQLAlchemy ORM (12 tables)
+│   │   │   ├── models.py             # SQLAlchemy ORM (14 tables mapping)
 │   │   │   ├── database.py           # Engine + session management
 │   │   │   └── repositories/         # Data access layer (4 files)
 │   │   ├── schemas/                  # Pydantic request/response models
 │   │   ├── seed/                     # 75-customer seed generator
-│   │   ├── services/                 # Business logic layer (5 files)
-│   │   ├── tools/                    # 16 @tool functions (8 files)
+│   │   ├── services/                 # Business logic layer (10 core services)
+│   │   ├── tools/                    # 21 @tool functions (8 files)
 │   │   ├── utils/                    # Logger, helpers, formatters
 │   │   ├── config.py                 # Pydantic settings
 │   │   └── main.py                   # FastAPI app + lifespan
@@ -584,7 +616,7 @@ LoanProspect-AI-CRM/
 │   │   ├── hooks/                    # useProspects, useClientPortal, useStreaming
 │   │   ├── layouts/AppLayout.jsx     # Sidebar + main content
 │   │   ├── pages/                    # Dashboard + ConversationWorkspace
-│   │   └── components/              # 22 feature components
+│   │   └── components/               # 34 modular feature UI components
 │   ├── package.json
 │   └── vite.config.js
 └── README.md
